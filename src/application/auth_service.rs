@@ -3,6 +3,7 @@ use std::sync::Arc;
 use async_trait::async_trait;
 use chrono::{Duration, Utc};
 use serde::{Deserialize, Serialize};
+use tracing::{debug, error, info};
 
 use crate::{
     config::AuthConfig,
@@ -33,7 +34,9 @@ impl AuthService {
     }
 
     pub async fn login(&self, email: &str, password: &str) -> Result<AuthToken, DomainError> {
+        debug!("Attempting login for email: {}", email);
         let Some(user) = self.user_repo.find_by_email(email).await? else {
+            debug!("Login failed: user not found for email: {}", email);
             return Err(DomainError::InvalidCredentials);
         };
 
@@ -45,12 +48,20 @@ impl AuthService {
             .password
             .verify(password, &creds.password_hash, &creds.salt)
             .await
-            .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+            .map_err(|e| {
+                error!("Password verification error for user {}: {}", email, e);
+                DomainError::Unexpected(e.to_string())
+            })?;
 
         if !valid {
+            debug!("Login failed: invalid password for email: {}", email);
             return Err(DomainError::InvalidCredentials);
         }
 
+        debug!(
+            "Password verification successful for user: {}, generating JWT token",
+            email
+        );
         let claims = AuthClaims {
             sub: user.user.id.0,
             email: user.user.email.clone(),
@@ -62,6 +73,7 @@ impl AuthService {
         };
 
         let token = self.token.encode(&claims)?;
+        info!("User {} logged in successfully", email);
 
         Ok(AuthToken {
             access_token: token,
@@ -69,7 +81,19 @@ impl AuthService {
     }
 
     pub fn decode(&self, token: &str) -> Result<AuthClaims, DomainError> {
-        self.token.decode(token)
+        debug!("Decoding JWT token");
+        let auth_claims = AuthClaims {
+            sub: 0,
+            email: "".to_string(),
+            groups: vec![],
+            exp: (Utc::now() + Duration::seconds(self.auth_config.jwt_ttl_seconds)).timestamp(),
+            iss: self.auth_config.jwt_issuer.clone(),
+            aud: self.auth_config.jwt_audience.clone(),
+            permissions: vec![],
+        };
+        let claims = self.token.decode(token, auth_claims)?;
+        debug!("Successfully decoded token for user: {}", claims.email);
+        Ok(claims)
     }
 }
 
@@ -79,9 +103,9 @@ pub struct AuthToken {
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthClaims {
-    pub sub: i64,
+    pub sub: i32,
     pub email: String,
-    pub groups: Vec<i64>,
+    pub groups: Vec<i32>,
     pub exp: i64,
     pub iss: String,
     pub aud: String,
@@ -96,5 +120,5 @@ pub trait PasswordManager: Send + Sync {
 
 pub trait TokenEncoder: Send + Sync {
     fn encode(&self, claims: &AuthClaims) -> Result<String, DomainError>;
-    fn decode(&self, token: &str) -> Result<AuthClaims, DomainError>;
+    fn decode(&self, token: &str, auth_claims: AuthClaims) -> Result<AuthClaims, DomainError>;
 }

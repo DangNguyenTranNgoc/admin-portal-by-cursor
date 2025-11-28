@@ -58,16 +58,16 @@ CREATE TABLE IF NOT EXISTS data_catalog (
     updated_time TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-INSERT INTO "group" (id, name, description)
+INSERT INTO "group" (name, description)
 VALUES
-    (1, 'All Users', 'Everyone'),
-    (2, 'Administrators', 'Admin group'),
-    (3, 'Editors', 'The moderators')
+    ('All Users', 'Everyone'),
+    ('Administrators', 'Admin group'),
+    ('Editors', 'The moderators')
 ON CONFLICT (id) DO NOTHING;
 
-INSERT INTO users (id, email, first_name, last_name, password, salt, status)
+INSERT INTO users (email, first_name, last_name, password, salt, status)
 VALUES
-    (1, 'admin@sample.com', 'admin', 'super', '$argon2id$v=19$m=19456,t=2,p=1$YWZzZzEyZ2Zo$...', 'YWZzZzEyZ2Zo', 'active')
+    ('admin@sample.com', 'admin', 'super', '$argon2id$v=19$m=19456,t=2,p=1$WVdaelp6RXlaMlpv$DfW5+RL//bsrEcyZ4QXOQQ', 'YWZzZzEyZ2Zo', 'active')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO group_membership (user_id, group_id)

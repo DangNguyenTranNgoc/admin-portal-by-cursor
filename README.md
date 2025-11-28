@@ -97,6 +97,22 @@ Run migrations with `sqlx migrate run`.
 
 `kafka::spawn_consumer` starts a background task that listens to the `user-events` topic. Events (see `domain::events::UserEvent`) can be expanded later to hydrate caches or synchronize ClickHouse aggregates.
 
+Example Kafka message:
+
+```json
+{
+  "type": "UserCreated",
+  "payload": {
+    "user_id": 345,
+    "email": "kafka@sampl.com",
+    "occurred_at": "2025-11-28T22:24:21Z",
+    "metadata": {
+      "status": "active"
+    }
+  }
+}
+```
+
 ## Next steps
 
 - Extend the Kafka consumer to persist denormalized views.

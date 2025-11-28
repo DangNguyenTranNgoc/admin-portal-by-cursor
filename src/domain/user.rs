@@ -7,7 +7,7 @@ use serde::{Deserialize, Serialize};
 use crate::shared::errors::DomainError;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UserId(pub i64);
+pub struct UserId(pub i32);
 
 impl Display for UserId {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
@@ -62,7 +62,7 @@ pub struct UserWithGroups {
 
 #[derive(Debug, Clone)]
 pub struct UserGroup {
-    pub id: i64,
+    pub id: i32,
     pub name: String,
 }
 
@@ -87,5 +87,5 @@ pub struct CreateUserCommand {
     pub last_name: String,
     pub password_hash: String,
     pub salt: String,
-    pub groups: Vec<i64>,
+    pub groups: Vec<i32>,
 }

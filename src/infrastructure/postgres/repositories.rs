@@ -1,6 +1,7 @@
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use sqlx::{FromRow, PgPool};
+use tracing::{debug, error, info};
 
 use crate::{
     application::data_catalog_service::{DataCatalogRepository, DatasetSchema},
@@ -27,6 +28,7 @@ impl PgUserRepository {
 #[async_trait]
 impl UserRepository for PgUserRepository {
     async fn find_by_id(&self, id: &UserId) -> Result<Option<UserWithGroups>, DomainError> {
+        debug!("Querying user by id: {}", id);
         let rows = sqlx::query_as::<_, UserRow>(
             r#"
             SELECT u.id,
@@ -50,12 +52,22 @@ impl UserRepository for PgUserRepository {
         .bind(id.0)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!("Database error while fetching user with id {}: {}", id, e);
+            DomainError::Unexpected(e.to_string())
+        })?;
 
-        Ok(group_rows(rows))
+        let result = group_rows(rows);
+        if result.is_some() {
+            debug!("Successfully found user with id: {}", id);
+        } else {
+            debug!("User with id {} not found", id);
+        }
+        Ok(result)
     }
 
     async fn find_by_email(&self, email: &str) -> Result<Option<UserWithGroups>, DomainError> {
+        debug!("Querying user by email: {}", email);
         let rows = sqlx::query_as::<_, UserRow>(
             r#"
             SELECT u.id,
@@ -79,12 +91,25 @@ impl UserRepository for PgUserRepository {
         .bind(email)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!(
+                "Database error while fetching user with email {}: {}",
+                email, e
+            );
+            DomainError::Unexpected(e.to_string())
+        })?;
 
-        Ok(group_rows(rows))
+        let result = group_rows(rows);
+        if result.is_some() {
+            debug!("Successfully found user with email: {}", email);
+        } else {
+            debug!("User with email {} not found", email);
+        }
+        Ok(result)
     }
 
     async fn list(&self) -> Result<Vec<UserWithGroups>, DomainError> {
+        debug!("Listing all users");
         let rows = sqlx::query_as::<_, UserRow>(
             r#"
             SELECT u.id,
@@ -107,9 +132,14 @@ impl UserRepository for PgUserRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!("Database error while listing users: {}", e);
+            DomainError::Unexpected(e.to_string())
+        })?;
 
-        Ok(group_rows_list(rows))
+        let result = group_rows_list(rows);
+        debug!("Successfully retrieved {} users", result.len());
+        Ok(result)
     }
 
     async fn create(&self, cmd: CreateUserCommand) -> Result<UserWithGroups, DomainError> {
@@ -122,11 +152,16 @@ impl UserRepository for PgUserRepository {
             groups,
         } = cmd;
 
-        let mut tx = self
-            .pool
-            .begin()
-            .await
-            .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+        let group_count = groups.len();
+        debug!(
+            "Creating user with email: {}, assigning to {} groups",
+            email, group_count
+        );
+
+        let mut tx = self.pool.begin().await.map_err(|e| {
+            error!("Failed to begin transaction for user creation: {}", e);
+            DomainError::Unexpected(e.to_string())
+        })?;
 
         let record = sqlx::query_as::<_, UserInsertRow>(
             r#"
@@ -142,9 +177,15 @@ impl UserRepository for PgUserRepository {
         .bind(&salt)
         .fetch_one(&mut *tx)
         .await
-        .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!("Failed to insert user into database: {}", e);
+            DomainError::Unexpected(e.to_string())
+        })?;
+
+        debug!("User created successfully with id: {}", record.id);
 
         for group_id in groups {
+            debug!("Assigning user {} to group {}", record.id, group_id);
             sqlx::query(
                 r#"
                 INSERT INTO group_membership (user_id, group_id)
@@ -156,12 +197,24 @@ impl UserRepository for PgUserRepository {
             .bind(group_id)
             .execute(&mut *tx)
             .await
-            .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+            .map_err(|e| {
+                error!(
+                    "Failed to assign user {} to group {}: {}",
+                    record.id, group_id, e
+                );
+                DomainError::Unexpected(e.to_string())
+            })?;
         }
 
-        tx.commit()
-            .await
-            .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+        tx.commit().await.map_err(|e| {
+            error!("Failed to commit transaction for user creation: {}", e);
+            DomainError::Unexpected(e.to_string())
+        })?;
+
+        info!(
+            "User {} created successfully with {} groups",
+            record.id, group_count
+        );
 
         Ok(UserWithGroups {
             user: record.into_user()?,
@@ -176,7 +229,7 @@ impl UserRepository for PgUserRepository {
 
 #[derive(FromRow)]
 struct UserRow {
-    id: i64,
+    id: i32,
     email: String,
     first_name: String,
     last_name: String,
@@ -186,13 +239,13 @@ struct UserRow {
     updated_time: DateTime<Utc>,
     password_hash: String,
     salt: String,
-    group_id: Option<i64>,
+    group_id: Option<i32>,
     group_name: Option<String>,
 }
 
 #[derive(FromRow)]
 struct UserInsertRow {
-    id: i64,
+    id: i32,
     email: String,
     first_name: String,
     last_name: String,
@@ -224,7 +277,7 @@ fn group_rows(rows: Vec<UserRow>) -> Option<UserWithGroups> {
 
 fn group_rows_list(rows: Vec<UserRow>) -> Vec<UserWithGroups> {
     let mut grouped = vec![];
-    let mut current_id: Option<i64> = None;
+    let mut current_id: Option<i32> = None;
     let mut current: Option<UserWithGroups> = None;
 
     for row in rows {
@@ -255,13 +308,13 @@ fn group_rows_list(rows: Vec<UserRow>) -> Vec<UserWithGroups> {
             current_id = Some(row.id);
         }
 
-        if let (Some(group_id), Some(group_name)) = (row.group_id, row.group_name.clone()) {
-            if let Some(ref mut agg) = current {
-                agg.groups.push(UserGroup {
-                    id: group_id,
-                    name: group_name,
-                });
-            }
+        if let (Some(group_id), Some(group_name)) = (row.group_id, row.group_name.clone())
+            && let Some(ref mut agg) = current
+        {
+            agg.groups.push(UserGroup {
+                id: group_id,
+                name: group_name,
+            });
         }
     }
 
@@ -286,12 +339,14 @@ impl PgPermissionRepository {
 impl PermissionRepository for PgPermissionRepository {
     async fn find_permissions_for_groups(
         &self,
-        group_ids: &[i64],
+        group_ids: &[i32],
     ) -> Result<Vec<Permission>, DomainError> {
         if group_ids.is_empty() {
+            debug!("No group ids provided, returning empty permissions");
             return Ok(vec![]);
         }
 
+        debug!("Querying permissions for {} groups", group_ids.len());
         let rows = sqlx::query_as::<_, PermissionRow>(
             r#"
             SELECT resource, group_id, perm_value
@@ -302,26 +357,42 @@ impl PermissionRepository for PgPermissionRepository {
         .bind(group_ids)
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!(
+                "Database error while fetching permissions for groups {:?}: {}",
+                group_ids, e
+            );
+            DomainError::Unexpected(e.to_string())
+        })?;
 
-        Ok(rows
+        let result: Vec<Permission> = rows
             .into_iter()
             .filter_map(|row| {
                 let bits = map_perm_value(row.perm_value)?;
+                debug!(
+                    "Parsed permission - resource: {}, group_id: {}, bits: {:?}",
+                    row.resource, row.group_id, bits
+                );
                 Some(Permission {
                     resource: row.resource,
                     group_id: row.group_id,
                     bits,
                 })
             })
-            .collect())
+            .collect();
+
+        debug!(
+            "Successfully retrieved {} permissions for groups",
+            result.len()
+        );
+        Ok(result)
     }
 }
 
 #[derive(FromRow)]
 struct PermissionRow {
     resource: String,
-    group_id: i64,
+    group_id: i32,
     perm_value: i32,
 }
 
@@ -352,6 +423,7 @@ impl PgDataCatalogRepository {
 #[async_trait]
 impl DataCatalogRepository for PgDataCatalogRepository {
     async fn list_schemas(&self) -> Result<Vec<DatasetSchema>, DomainError> {
+        debug!("Listing all data catalog schemas");
         let rows = sqlx::query_as::<_, DatasetRow>(
             r#"
             SELECT id, name, description, base_query
@@ -361,20 +433,33 @@ impl DataCatalogRepository for PgDataCatalogRepository {
         )
         .fetch_all(&self.pool)
         .await
-        .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!("Database error while listing data catalog schemas: {}", e);
+            DomainError::Unexpected(e.to_string())
+        })?;
 
-        Ok(rows
+        let result: Vec<DatasetSchema> = rows
             .into_iter()
-            .map(|row| DatasetSchema {
-                id: row.id,
-                name: row.name,
-                description: row.description,
-                base_query: row.base_query,
+            .map(|row| {
+                debug!(
+                    "Retrieved dataset schema - id: {}, name: {}",
+                    row.id, row.name
+                );
+                DatasetSchema {
+                    id: row.id,
+                    name: row.name,
+                    description: row.description,
+                    base_query: row.base_query,
+                }
             })
-            .collect())
+            .collect();
+
+        debug!("Successfully retrieved {} dataset schemas", result.len());
+        Ok(result)
     }
 
     async fn resolve_query(&self, dataset_id: i64) -> Result<String, DomainError> {
+        debug!("Resolving query for dataset id: {}", dataset_id);
         let row = sqlx::query_as::<_, DatasetRow>(
             r#"
             SELECT id, name, description, base_query
@@ -385,12 +470,20 @@ impl DataCatalogRepository for PgDataCatalogRepository {
         .bind(dataset_id)
         .fetch_optional(&self.pool)
         .await
-        .map_err(|e| DomainError::Unexpected(e.to_string()))?;
+        .map_err(|e| {
+            error!(
+                "Database error while resolving query for dataset {}: {}",
+                dataset_id, e
+            );
+            DomainError::Unexpected(e.to_string())
+        })?;
 
         let Some(row) = row else {
+            debug!("Dataset with id {} not found", dataset_id);
             return Err(DomainError::UserNotFound);
         };
 
+        debug!("Successfully resolved query for dataset: {}", row.name);
         Ok(row.base_query)
     }
 }

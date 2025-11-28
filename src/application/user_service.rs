@@ -2,6 +2,7 @@ use std::sync::Arc;
 
 use async_trait::async_trait;
 use serde::Serialize;
+use tracing::{debug, info};
 
 use crate::{
     domain::user::{CreateUserCommand, UserId, UserRepository, UserWithGroups},
@@ -19,25 +20,38 @@ impl UserService {
     }
 
     pub async fn list_users(&self) -> Result<Vec<UserWithGroups>, DomainError> {
-        self.repo.list().await
+        debug!("Listing all users from service");
+        let users = self.repo.list().await?;
+        debug!("Retrieved {} users from repository", users.len());
+        Ok(users)
     }
 
     pub async fn get_user(&self, id: UserId) -> Result<UserWithGroups, DomainError> {
-        self.repo
+        debug!("Fetching user with id: {} from service", id);
+        let user = self
+            .repo
             .find_by_id(&id)
             .await?
-            .ok_or(DomainError::UserNotFound)
+            .ok_or(DomainError::UserNotFound)?;
+        debug!("Successfully retrieved user with id: {}", id);
+        Ok(user)
     }
 
     pub async fn create_user(&self, cmd: CreateUserCommand) -> Result<UserWithGroups, DomainError> {
-        self.repo.create(cmd).await
+        debug!("Creating user in service with email: {}", cmd.email);
+        let user = self.repo.create(cmd).await?;
+        info!("User created successfully via service: {}", user.user.id);
+        Ok(user)
     }
 
     pub async fn query_user_data(
         &self,
         query: WarehouseQuery,
     ) -> Result<Vec<serde_json::Value>, DomainError> {
-        self.warehouse.execute(query).await
+        debug!("Executing warehouse query: {}", query.statement);
+        let result = self.warehouse.execute(query).await?;
+        debug!("Warehouse query returned {} rows", result.len());
+        Ok(result)
     }
 }
 

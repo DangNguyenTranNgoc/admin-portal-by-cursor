@@ -37,7 +37,7 @@ pub enum PermissionMethod {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Permission {
     pub resource: String,
-    pub group_id: i64,
+    pub group_id: i32,
     pub bits: PermissionBits,
 }
 
@@ -45,6 +45,6 @@ pub struct Permission {
 pub trait PermissionRepository: Send + Sync {
     async fn find_permissions_for_groups(
         &self,
-        group_ids: &[i64],
+        group_ids: &[i32],
     ) -> Result<Vec<Permission>, DomainError>;
 }

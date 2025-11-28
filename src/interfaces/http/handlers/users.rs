@@ -5,6 +5,7 @@ use axum::{
 };
 use rand_core::OsRng;
 use serde::{Deserialize, Serialize};
+use tracing::debug;
 
 use crate::{
     domain::user::{CreateUserCommand, UserId, UserWithGroups},
@@ -14,7 +15,7 @@ use crate::{
 
 #[derive(Serialize)]
 pub struct UserResponse {
-    pub id: i64,
+    pub id: i32,
     pub email: String,
     pub first_name: String,
     pub last_name: String,
@@ -24,7 +25,7 @@ pub struct UserResponse {
 
 #[derive(Serialize)]
 pub struct GroupResponse {
-    pub id: i64,
+    pub id: i32,
     pub name: String,
 }
 
@@ -48,14 +49,14 @@ impl From<UserWithGroups> for UserResponse {
     }
 }
 
-#[derive(Deserialize)]
+#[derive(Deserialize, Debug)]
 pub struct CreateUserRequest {
     pub email: String,
     pub first_name: String,
     pub last_name: String,
     pub password: String,
     #[serde(default)]
-    pub groups: Vec<i64>,
+    pub groups: Vec<i32>,
 }
 
 pub async fn list_users(
@@ -71,7 +72,7 @@ pub async fn list_users(
 
 pub async fn get_user(
     State(state): State<SharedState>,
-    Path(id): Path<i64>,
+    Path(id): Path<i32>,
 ) -> Result<Json<UserResponse>, ApiError> {
     let user = state
         .user_service
@@ -86,6 +87,10 @@ pub async fn create_user(
     State(state): State<SharedState>,
     Json(payload): Json<CreateUserRequest>,
 ) -> Result<Json<UserResponse>, ApiError> {
+    debug!(
+        "Recieve request to create new user with info: {:?}",
+        payload
+    );
     let salt = SaltString::generate(&mut OsRng);
     let salt_str = salt.to_string();
     let password_hash = state
