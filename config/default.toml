@@ -16,6 +16,7 @@ brokers = "localhost:9092"
 group_id = "admin-backend"
 topic = "user-events"
 poll_interval_ms = 500
+max_concurrency_consumer = 16
 
 [auth]
 jwt_secret = "replace-with-strong-secret"

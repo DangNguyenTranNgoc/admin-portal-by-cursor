@@ -65,6 +65,7 @@ pub struct KafkaConfig {
     pub topic: String,
     #[serde(default = "KafkaConfig::default_poll_interval_ms")]
     pub poll_interval_ms: u64,
+    pub max_concurrency_consumer: usize,
 }
 
 impl KafkaConfig {

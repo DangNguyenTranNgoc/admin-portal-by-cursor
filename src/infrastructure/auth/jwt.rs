@@ -30,9 +30,8 @@ impl TokenEncoder for JwtService {
             error!("Failed to encode JWT token: {}", e);
             DomainError::Unexpected(e.to_string())
         })
-        .map(|token| {
-            info!("JWT token encoded successfully for user: {}", claims.email);
-            token
+        .inspect(|_| {
+            info!("JWT token encoded successfully for user: {}", claims.email)
         })
     }
 

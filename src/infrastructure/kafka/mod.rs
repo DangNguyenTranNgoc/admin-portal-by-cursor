@@ -1,5 +1,3 @@
-use std::sync::Arc;
-
 use futures::StreamExt;
 use rdkafka::{
     ClientConfig,
@@ -8,6 +6,7 @@ use rdkafka::{
     producer::{FutureProducer, FutureRecord},
     util::Timeout,
 };
+use std::sync::Arc;
 use tracing::{error, info};
 
 use crate::{config::KafkaConfig, domain::events::UserEvent, state::SharedState};
@@ -42,8 +41,7 @@ impl UserEventProducer {
             .map_err(|(err, _)| err.into())
     }
 }
-
-pub async fn spawn_consumer(cfg: Arc<KafkaConfig>, _state: SharedState) -> anyhow::Result<()> {
+pub async fn spawn_consumer(cfg: Arc<KafkaConfig>, state: SharedState) -> anyhow::Result<()> {
     let consumer: StreamConsumer = ClientConfig::new()
         .set("group.id", &cfg.group_id)
         .set("bootstrap.servers", &cfg.brokers)
@@ -53,24 +51,36 @@ pub async fn spawn_consumer(cfg: Arc<KafkaConfig>, _state: SharedState) -> anyho
 
     consumer.subscribe(&[&cfg.topic])?;
 
+    let state_clone = state.clone();
+
     tokio::spawn(async move {
-        let mut stream = consumer.stream();
-        while let Some(message) = stream.next().await {
-            match message {
-                Ok(msg) => {
-                    if let Some(payload) = msg.payload() {
-                        match serde_json::from_slice::<UserEvent>(payload) {
-                            Ok(event) => {
-                                info!("Received Kafka event: {:?}", event);
-                                // TODO: feed into application services using `state`.
+        consumer
+            .stream()
+            .for_each_concurrent(cfg.max_concurrency_consumer, move |message| {
+                let _state = state_clone.clone();
+
+                async move {
+                    match message {
+                        Ok(msg) => {
+                            if let Some(payload) = msg.payload() {
+                                match serde_json::from_slice::<UserEvent>(payload) {
+                                    Ok(event) => {
+                                        info!("Kafka UserEvent: {:?}", event);
+
+                                        // Process using application services
+                                        // TODO: handle events
+                                    }
+                                    Err(err) => error!("Failed to parse event: {:?}", err),
+                                }
                             }
-                            Err(err) => error!("Failed to parse event: {err}"),
+                        }
+                        Err(err) => {
+                            error!("Kafka stream error: {:?}", err);
                         }
                     }
                 }
-                Err(err) => error!("Kafka error: {err}"),
-            }
-        }
+            })
+            .await;
     });
 
     Ok(())

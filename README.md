@@ -81,6 +81,10 @@ You need:
 
 Run migrations with `sqlx migrate run`.
 
+Default admin credentials:
+- email: admin@sample.com
+- password: admin
+
 ## Security Model
 
 - Users authenticate with email/password; passwords are Argon2id hashes salted per-user.

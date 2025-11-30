@@ -67,7 +67,7 @@ ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO users (email, first_name, last_name, password, salt, status)
 VALUES
-    ('admin@sample.com', 'admin', 'super', '$argon2id$v=19$m=19456,t=2,p=1$WVdaelp6RXlaMlpv$DfW5+RL//bsrEcyZ4QXOQQ', 'YWZzZzEyZ2Zo', 'active')
+    ('admin@sample.com', 'admin', 'super', '$argon2id$v=19$m=19456,t=2,p=1$c0FsaGwxMjM$PZq3Ur26c7PJ+n+rDkAI2w', 'YWZzZzEyZ2Zo', 'active')
 ON CONFLICT (id) DO NOTHING;
 
 INSERT INTO group_membership (user_id, group_id)
